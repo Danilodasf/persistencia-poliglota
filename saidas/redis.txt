@@ -1,4 +1,4 @@
-Demonstração: redis  (gerado em 20/11/2026 22:24:02)
+Demonstração: redis  (gerado em 20/11/2026 23:30:06)
   # Redis atende R3, R4, R5 e R8: dados em memória, estruturas prontas
   # (hash, sorted set) e TTL nativo.
 
@@ -17,8 +17,8 @@ HGETALL (sessão criada):
       "cliente_id": "159",
       "nome": "João Felipe Cassiano",
       "dispositivo": "web",
-      "login_em": "2026-11-20T22:24:02",
-      "ultimo_acesso": "2026-11-20T22:24:02"
+      "login_em": "2026-11-20T23:30:06",
+      "ultimo_acesso": "2026-11-20T23:30:06"
     }
 TTL logo após o login (s):
     1800
@@ -32,7 +32,7 @@ Logo após criar:
 3 s depois:
     EXISTS sessao:demo-expira -> 0   TTL -> -2  (-2 = chave não existe)
 Uma das 300 sessões da carga:
-    sessao:9a528dbd442c41d3459139092cc1fcca -> TTL 1770 s
+    sessao:0cc0b9aa7e4a30b711c76238d5f59717 -> TTL 1760 s
   # A chave sumiu sozinha: nenhum job de limpeza, nenhum DELETE.
   # O próprio Redis remove as chaves expiradas.
 

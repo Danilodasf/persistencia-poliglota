@@ -1,4 +1,4 @@
-Demonstração: neo4j  (gerado em 20/11/2026 22:24:08)
+Demonstração: neo4j  (gerado em 20/11/2026 23:30:16)
   # Neo4j atende o R7: recomendação é travessia de relacionamentos
   # (:Cliente)-[:COMPROU]->(:Produto). A consulta descreve o caminho
   # em vez de encadear self-joins.

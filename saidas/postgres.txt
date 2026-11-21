@@ -1,4 +1,4 @@
-Demonstração: postgres  (gerado em 20/11/2026 22:09:18)
+Demonstração: postgres  (gerado em 20/11/2026 22:24:02)
   # PostgreSQL atende o R1: pedido + itens + pagamento + baixa de estoque
   # numa única transação ACID ("ou tudo acontece ou nada acontece").
 
@@ -114,7 +114,7 @@ Comando:
 Retorno:
     pedido | criado_em        | status   | total    | metodo         | parc | pagto    | itens
     -------+------------------+----------+----------+----------------+------+----------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    3001   | 20/11/2026 22:09 | pago     | 14412.50 | pix            | 1    | aprovado | 2x Celular Nexa X18 64GB; 1x Notebook Zenit Book 6 16.0"
+    3001   | 20/11/2026 22:24 | pago     | 14412.50 | pix            | 1    | aprovado | 2x Celular Nexa X18 64GB; 1x Notebook Zenit Book 6 16.0"
     2822   | 30/10/2026 18:21 | pago     | 29319.73 | pix            | 1    | aprovado | 1x Camiseta Maré Estampada branco M; 2x Notebook Zenit Book 6 16.0"; 1x Notebook Zenit Book 9 16.0"
     1611   | 28/10/2026 04:58 | entregue | 2187.78  | boleto         | 1    | aprovado | 3x Tenis Corre Já Classic 5 casual n42
     2831   | 19/10/2026 23:34 | entregue | 4954.74  | boleto         | 1    | aprovado | 1x Tenis Corre Já Classic 2 caminhada n38; 1x Tenis Corre Já Classic 5 casual n42; 1x Tenis Corre Já Street 6 corrida n45; 1x Tenis Corre Já Street 8 casual n45; 3x Tenis Urbe Classic 5 caminhada n37

@@ -170,7 +170,7 @@ class Saida:
         if comando:
             self.escrever("Comando:")
             for linha in comando.strip().splitlines():
-                self.escrever(f"    {linha}")
+                self.escrever(f"    {linha}".rstrip())
 
     def retorno(self, valor, rotulo="Retorno"):
         """Mostra o resultado; dicts/listas são formatados para ficar legíveis."""

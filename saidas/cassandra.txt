@@ -1,0 +1,118 @@
+Demonstração: cassandra  (gerado em 20/11/2026 22:20:28)
+  # Cassandra atende o R6: escrita massiva e distribuída. A tabela foi
+  # modelada a partir da consulta "histórico do usuário":
+  # PRIMARY KEY ((cliente_id, mes), ocorrido_em DESC, evento_id).
+
+==============================================================================
+Operação 1 [R6] Inserir 3 eventos de navegação do cliente 159 (mês 2026-11)
+==============================================================================
+Comando:
+    INSERT INTO eventos_por_usuario (cliente_id, mes, ocorrido_em, evento_id, tipo, produto_id, termo, dispositivo)
+    VALUES (159, '2026-11', <agora-2min>, uuid(), 'busca', null, 'notebook gamer', 'web');
+    INSERT ... VALUES (159, '2026-11', <agora-1min>, uuid(), 'visualizacao', 383, null, 'web');
+    INSERT ... VALUES (159, '2026-11', <agora>,      uuid(), 'clique',       383, null, 'web');
+    INSERT INTO meses_por_usuario (cliente_id, mes) VALUES (159, '2026-11');
+
+    SELECT ocorrido_em, tipo, produto_id, termo, dispositivo FROM eventos_por_usuario
+     WHERE cliente_id = 159 AND mes = '2026-11';
+Retorno:
+    ocorrido_em         | tipo         | produto_id | termo          | dispositivo
+    --------------------+--------------+------------+----------------+------------
+    20/11/2026 22:20:28 | clique       | 383        |                | web
+    20/11/2026 22:19:28 | visualizacao | 383        |                | web
+    20/11/2026 22:18:28 | busca        |            | notebook gamer | web
+    (3 linhas)
+  # Foram inseridos em ordem cronológica e voltaram do mais recente para o mais
+  # antigo: a ordem vem do CLUSTERING ORDER BY (ocorrido_em DESC), não da consulta.
+  # Gravação no Cassandra = commit log + memtable, sem ler antes de escrever:
+  # por isso aguenta centenas de milhares de eventos por hora.
+
+==============================================================================
+Operação 2 [R6] Histórico completo do cliente 159, do mais recente ao mais antigo
+==============================================================================
+Comando:
+    -- 1) em quais meses o usuário tem eventos (1 partição)
+    SELECT mes FROM meses_por_usuario WHERE cliente_id = 159;
+    -- 2) para cada mês, em ordem decrescente (1 partição por mês)
+    SELECT ocorrido_em, tipo, produto_id, termo, dispositivo FROM eventos_por_usuario
+     WHERE cliente_id = 159 AND mes = ?;
+Meses (já em ordem decrescente):
+    [
+      "2026-11",
+      "2026-10",
+      "2026-09",
+      "2026-08"
+    ]
+Eventos por mês:
+    mes     | eventos
+    --------+--------
+    2026-11 | 3
+    2026-10 | 188
+    2026-09 | 193
+    2026-08 | 218
+    (4 linhas)
+Resumo:
+    602 eventos em 4 leituras de partição + 1, 10 ms; ordem decrescente conferida: True
+8 mais recentes:
+    ocorrido_em         | tipo         | produto_id | termo                 | dispositivo
+    --------------------+--------------+------------+-----------------------+------------
+    20/11/2026 22:20:28 | clique       | 383        |                       | web
+    20/11/2026 22:19:28 | visualizacao | 383        |                       | web
+    20/11/2026 22:18:28 | busca        |            | notebook gamer        | web
+    31/10/2026 23:07:23 | clique       | 438        |                       | ios
+    31/10/2026 18:55:47 | busca        |            | notebook gamer vortex | web
+    31/10/2026 18:24:10 | visualizacao | 257        |                       | android
+    31/10/2026 13:37:36 | visualizacao | 340        |                       | android
+    31/10/2026 04:20:46 | visualizacao | 383        |                       | web
+    (8 linhas)
+3 mais antigos:
+    ocorrido_em         | tipo         | produto_id | termo | dispositivo
+    --------------------+--------------+------------+-------+------------
+    01/08/2026 10:41:14 | clique       | 215        |       | ios
+    01/08/2026 02:55:35 | visualizacao | 301        |       | android
+    01/08/2026 02:12:54 | visualizacao | 484        |       | android
+    (3 linhas)
+
+==============================================================================
+Operação 3 [R6] Faixa de tempo dentro da partição: eventos do cliente 159 em 31/10/2026
+==============================================================================
+Comando:
+    SELECT ocorrido_em, tipo, produto_id, termo, dispositivo FROM eventos_por_usuario
+     WHERE cliente_id = 159 AND mes = '2026-10'
+       AND ocorrido_em >= '2026-10-31 00:00:00-0300'
+       AND ocorrido_em <  '2026-11-01 00:00:00-0300';
+Retorno:
+    ocorrido_em         | tipo         | produto_id | termo                 | dispositivo
+    --------------------+--------------+------------+-----------------------+------------
+    31/10/2026 23:07:23 | clique       | 438        |                       | ios
+    31/10/2026 18:55:47 | busca        |            | notebook gamer vortex | web
+    31/10/2026 18:24:10 | visualizacao | 257        |                       | android
+    31/10/2026 13:37:36 | visualizacao | 340        |                       | android
+    31/10/2026 04:20:46 | visualizacao | 383        |                       | web
+    (5 linhas)
+  # Filtro por faixa na coluna de clusterização é eficiente: dentro da
+  # partição as linhas estão ordenadas por data, então o Cassandra lê só o
+  # trecho contínuo daquele dia.
+
+==============================================================================
+Operação 4 [R6] Consulta SEM a partition key: todos os eventos de busca, de qualquer usuário
+==============================================================================
+Comando:
+    SELECT cliente_id, ocorrido_em, termo FROM eventos_por_usuario WHERE tipo = 'busca';
+    SELECT count(*) FROM eventos_por_usuario WHERE tipo = 'busca' ALLOW FILTERING;
+Sem ALLOW FILTERING:
+    InvalidRequest: Cannot execute this query as it might involve data filtering and thus may have unpredictable performance. If you want to execute this query despite the performance unpredictability, use ALLOW FILTERING
+Comparação:
+    consulta                                       | linhas       | tempo
+    -----------------------------------------------+--------------+-------
+    com ALLOW FILTERING (varre todas as partições) | 14741 buscas | 164 ms
+    pela partition key (159, '2026-08')            | 218 eventos  | 3 ms
+    (2 linhas)
+  # Sem a chave de partição o Cassandra não sabe em qual nó estão os dados:
+  # ele recusa a consulta, e com ALLOW FILTERING passa a ler TODAS as
+  # partições de TODOS os nós e filtrar depois. Com 100 mil linhas num nó só
+  # ainda responde; com bilhões de eventos num cluster, derrubaria o desempenho.
+  # O padrão do Cassandra é outro: criar uma tabela nova modelada para essa
+  # pergunta, por exemplo
+  # buscas_por_termo ((termo, mes), ocorrido_em DESC, evento_id)
+  # e gravar o evento nas duas tabelas (desnormalização).

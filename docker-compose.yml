@@ -1,0 +1,148 @@
+# Sobe os cinco bancos do marketplace com um único comando (E3):
+#   docker compose up -d
+# O serviço "app" (Python com os drivers) não sobe junto: ele roda sob demanda com
+#   docker compose run --rm app python <script>
+# e só começa depois que os cinco bancos estiverem "healthy".
+#
+# Os limites de memória cabem num Docker Desktop com 6 GB de RAM
+# (soma dos limites ≈ 4,7 GB, sobrando folga para o próprio Docker e o app).
+
+services:
+
+  # R1 — pedidos, itens, pagamento e estoque (transação ACID)
+  postgres:
+    image: postgres:16
+    container_name: mp_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_dados:/var/lib/postgresql/data
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # R3, R4, R5, R8 — sessão (TTL), carrinho, ranking e projeção por marca
+  redis:
+    image: redis:7
+    container_name: mp_redis
+    # --appendonly yes: grava as operações em disco (AOF), para o carrinho e o
+    # ranking sobreviverem a um restart do container.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dados:/data
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --no-auth-warning ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # R2 — catálogo de produtos com atributos por categoria
+  mongodb:
+    image: mongo:7
+    container_name: mp_mongodb
+    # O WiredTiger usa por padrão ~50% da RAM como cache; limitamos para caber no 1 GB.
+    command: ["mongod", "--wiredTigerCacheSizeGB", "0.25"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_dados:/data/db
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+
+  # R6 — eventos de navegação (escrita massiva)
+  cassandra:
+    image: cassandra:4.1
+    container_name: mp_cassandra
+    environment:
+      # Heap pequeno para rodar em notebook; em produção seriam vários GB por nó.
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+      CASSANDRA_CLUSTER_NAME: marketplace
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra_dados:/var/lib/cassandra
+    mem_limit: 1536m
+    # O Cassandra demora (1 a 2 min) para aceitar conexões CQL; o start_period
+    # evita que essas falhas iniciais contem como "unhealthy".
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'DESCRIBE KEYSPACES' > /dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  # R7 — grafo de compras para recomendação
+  neo4j:
+    image: neo4j:5
+    container_name: mp_neo4j
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER}/${NEO4J_PASSWORD}
+      # Só para o healthcheck. Não pode começar com NEO4J_: o Neo4j trata toda
+      # variável NEO4J_* como configuração e recusa subir com uma desconhecida.
+      SENHA_HEALTHCHECK: ${NEO4J_PASSWORD}
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 256m
+    ports:
+      - "7474:7474"   # Neo4j Browser (http://localhost:7474)
+      - "7687:7687"   # protocolo Bolt (driver)
+    volumes:
+      - neo4j_dados:/data
+    mem_limit: 1536m
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${SENHA_HEALTHCHECK}\" 'RETURN 1' > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
+  # Container com Python 3.11 e os cinco drivers. Roda os scripts de carga e demo.
+  app:
+    build: ./app
+    container_name: mp_app
+    # O profile faz o "docker compose up -d" ignorar o app; o "docker compose run app"
+    # continua funcionando, porque o serviço é chamado explicitamente.
+    profiles: ["app"]
+    env_file: .env
+    volumes:
+      - .:/projeto
+    working_dir: /projeto
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+
+volumes:
+  pg_dados:
+  redis_dados:
+  mongo_dados:
+  cassandra_dados:
+  neo4j_dados:

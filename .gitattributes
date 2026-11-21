@@ -1,0 +1,4 @@
+# Arquivos de texto sempre com fim de linha LF: eles são lidos dentro de
+# containers Linux (Python, CQL, Cypher, SQL), e assim o Git não fica
+# convertendo para CRLF no Windows.
+* text=auto eol=lf

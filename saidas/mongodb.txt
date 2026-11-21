@@ -1,0 +1,244 @@
+Demonstração: mongodb  (gerado em 20/11/2026 22:14:06)
+  # MongoDB atende o R2: cada produto é um documento; os campos comuns ficam
+  # no topo e o subdocumento "atributos" muda conforme a categoria.
+
+==============================================================================
+Operação 1 [R2] Um celular e um livro: mesma coleção, atributos diferentes
+==============================================================================
+Comando:
+    db.produtos.find({ categoria: "celular" }).sort({ _id: 1 }).limit(1)
+    db.produtos.find({ categoria: "livro" }).sort({ _id: 1 }).limit(1)
+Celular:
+    {
+      "_id": 1,
+      "nome": "Celular Nexa X18 64GB",
+      "categoria": "celular",
+      "marca": "Nexa",
+      "marca_slug": "nexa",
+      "preco": 1124.66,
+      "atributos": {
+        "memoria_gb": 64,
+        "ram_gb": 8,
+        "tela_polegadas": 6.3,
+        "cor": "branco",
+        "dual_chip": false,
+        "camera_mp": 108
+      }
+    }
+Livro:
+    {
+      "_id": 101,
+      "nome": "O Silêncio de Outono",
+      "categoria": "livro",
+      "marca": "Editora Pindorama",
+      "marca_slug": "editora-pindorama",
+      "preco": 95.76,
+      "atributos": {
+        "isbn": "9786571111611",
+        "paginas": 842,
+        "autor": "Brenda Alves",
+        "editora": "Editora Pindorama",
+        "genero": "suspense",
+        "idioma": "portugues",
+        "ano_publicacao": 2003
+      }
+    }
+  # Campos comuns iguais (nome, categoria, marca, preco). Em "atributos", o celular
+  # tem ['camera_mp', 'cor', 'dual_chip', 'memoria_gb', 'ram_gb', 'tela_polegadas']
+  # e o livro tem ['ano_publicacao', 'autor', 'editora', 'genero', 'idioma', 'isbn', 'paginas'].
+  # Nenhuma coluna vazia, nenhuma tabela extra.
+
+==============================================================================
+Operação 2 [R2] Consulta por atributo específico: livros com mais de 300 páginas
+==============================================================================
+Comando:
+    db.produtos.countDocuments({ categoria: "livro", "atributos.paginas": { $gt: 300 } })
+    db.produtos.find(
+        { categoria: "livro", "atributos.paginas": { $gt: 300 } },
+        { nome: 1, marca: 1, preco: 1, "atributos.paginas": 1, "atributos.autor": 1 }
+    ).sort({ "atributos.paginas": -1 }).limit(5)
+Total de livros com mais de 300 páginas:
+    77
+Os 5 mais longos:
+    [
+      {
+        "_id": 124,
+        "nome": "Introdução a Arquitetura de Sistemas",
+        "marca": "Editora Pindorama",
+        "preco": 116.95,
+        "atributos": {
+          "paginas": 887,
+          "autor": "Dr. Gustavo Henrique Rios"
+        }
+      },
+      {
+        "_id": 180,
+        "nome": "O Mapa sem Nome",
+        "marca": "Editora Ipê",
+        "preco": 140.85,
+        "atributos": {
+          "paginas": 884,
+          "autor": "Maria Lima"
+        }
+      },
+      {
+        "_id": 177,
+        "nome": "Introdução a Marketing Digital",
+        "marca": "Editora Aurora",
+        "preco": 97.64,
+        "atributos": {
+          "paginas": 877,
+          "autor": "Olívia da Cruz"
+        }
+      },
+      {
+        "_id": 116,
+        "nome": "A Herança do Norte",
+        "marca": "Editora Aurora",
+        "preco": 149.0,
+        "atributos": {
+          "paginas": 864,
+          "autor": "Sra. Zoe Campos"
+        }
+      },
+      {
+        "_id": 166,
+        "nome": "A Noite do Tempo",
+        "marca": "Editora Ipê",
+        "preco": 73.48,
+        "atributos": {
+          "paginas": 859,
+          "autor": "Murilo Rios"
+        }
+      }
+    ]
+Plano de execução (explain):
+    FETCH -> IXSCAN (idx_categoria)
+  # O índice idx_categoria reduz a busca aos 100 livros (IXSCAN); o filtro
+  # em atributos.paginas é aplicado sobre eles (FETCH).
+
+==============================================================================
+Operação 3 [R2] Outro atributo, outra categoria: celulares com 256 GB ou mais e tela >= 6.5"
+==============================================================================
+Comando:
+    db.produtos.find(
+        { categoria: "celular", "atributos.memoria_gb": { $gte: 256 }, "atributos.tela_polegadas": { $gte: 6.5 } },
+        { nome: 1, preco: 1, "atributos.memoria_gb": 1, "atributos.tela_polegadas": 1 }
+    ).sort({ preco: 1 }).limit(5)
+Total encontrado:
+    34
+Os 5 mais baratos:
+    [
+      {
+        "_id": 35,
+        "nome": "Celular Nexa Lite18 512GB",
+        "preco": 1395.81,
+        "atributos": {
+          "memoria_gb": 512,
+          "tela_polegadas": 6.5
+        }
+      },
+      {
+        "_id": 78,
+        "nome": "Celular Nexa Max9 512GB",
+        "preco": 1430.28,
+        "atributos": {
+          "memoria_gb": 512,
+          "tela_polegadas": 6.5
+        }
+      },
+      {
+        "_id": 99,
+        "nome": "Celular Lumio Neo18 256GB",
+        "preco": 1603.17,
+        "atributos": {
+          "memoria_gb": 256,
+          "tela_polegadas": 6.9
+        }
+      },
+      {
+        "_id": 33,
+        "nome": "Celular Nexa Lite5 256GB",
+        "preco": 1717.93,
+        "atributos": {
+          "memoria_gb": 256,
+          "tela_polegadas": 6.6
+        }
+      },
+      {
+        "_id": 18,
+        "nome": "Celular Nexa Neo19 512GB",
+        "preco": 1894.29,
+        "atributos": {
+          "memoria_gb": 512,
+          "tela_polegadas": 6.7
+        }
+      }
+    ]
+
+==============================================================================
+Operação 4 [R2] Categoria nova ("fone") sem alterar esquema
+==============================================================================
+Comando:
+    db.produtos.distinct("categoria")          // antes
+    db.produtos.insertOne({
+        _id: 501, nome: "Fone Nexa Pulse ANC", categoria: "fone", marca: "Nexa",
+        preco: 499.90,
+        atributos: { tipo: "bluetooth", cancelamento_ruido: true, bateria_horas: 30,
+                     driver_mm: 40, microfone: true }
+    })
+    db.produtos.distinct("categoria")          // depois
+    db.produtos.find({ categoria: "fone" })
+Categorias ANTES:
+    [
+      "camiseta",
+      "celular",
+      "livro",
+      "notebook",
+      "tenis"
+    ]
+Retorno:
+    insertOne -> acknowledged=True, insertedId=501
+Categorias DEPOIS:
+    [
+      "camiseta",
+      "celular",
+      "fone",
+      "livro",
+      "notebook",
+      "tenis"
+    ]
+Produto novo:
+    [
+      {
+        "_id": 501,
+        "nome": "Fone Nexa Pulse ANC",
+        "categoria": "fone",
+        "marca": "Nexa",
+        "marca_slug": "nexa",
+        "preco": 499.9,
+        "atributos": {
+          "tipo": "bluetooth",
+          "cancelamento_ruido": true,
+          "bateria_horas": 30,
+          "driver_mm": 40,
+          "microfone": true
+        }
+      }
+    ]
+  # Nenhum ALTER TABLE, nenhuma migração: os documentos antigos continuam
+  # iguais e o fone já pode ser consultado pelos atributos dele
+  # (ex.: { "atributos.cancelamento_ruido": true }). No relacional seria
+  # preciso criar colunas ou uma tabela nova.
+
+==============================================================================
+Operação 5 [R2] Flexível, mas com regra: o validador $jsonSchema recusa produto sem preço
+==============================================================================
+Comando:
+    db.produtos.insertOne({ _id: 999, nome: "Produto sem preço", categoria: "fone",
+                            marca: "Nexa", atributos: {} })
+Retorno:
+    ERRO 121 (DocumentValidationFailure): Document failed validation; campos obrigatórios ausentes: [['preco']]
+  # O validador exige os campos comuns (nome, categoria, marca, preco,
+  # atributos) e deixa o conteúdo de "atributos" livre: a flexibilidade fica
+  # só onde o requisito pede.

@@ -1,0 +1,9 @@
+# Credenciais locais (versionamos só o .env.example)
+.env
+
+# Python
+__pycache__/
+.venv/
+
+# Dataset gerado por dados/gerar_dataset.py (reproduzível com seed fixa)
+dados/dataset/

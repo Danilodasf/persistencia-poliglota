@@ -27,9 +27,36 @@ RAIZ = Path(__file__).resolve().parent.parent
 PASTA_SAIDAS = RAIZ / "saidas"
 
 
+PASTA_DATASET = RAIZ / "dados" / "dataset"
+
+
 def env(nome, padrao=None):
     """Lê uma variável de ambiente; o padrão é o valor do .env.example."""
     return os.environ.get(nome, padrao)
+
+
+def ler_dataset(nome):
+    """Lê dados/dataset/<nome>.json, com uma mensagem clara se o dataset ainda não foi gerado."""
+    caminho = PASTA_DATASET / f"{nome}.json"
+    if not caminho.exists():
+        raise SystemExit(
+            f"Arquivo {caminho.relative_to(RAIZ)} não encontrado. Gere o dataset antes:\n"
+            "    docker compose run --rm app python dados/gerar_dataset.py"
+        )
+    with caminho.open(encoding="utf-8") as f:
+        return json.load(f)
+
+
+def formatar_tabela(cabecalho, linhas):
+    """Monta uma tabela em texto (colunas alinhadas) para mostrar resultados de consultas."""
+    linhas = [["" if v is None else str(v) for v in linha] for linha in linhas]
+    larguras = [max(len(str(c)), *(len(l[i]) for l in linhas)) if linhas else len(str(c))
+                for i, c in enumerate(cabecalho)]
+    fmt = " | ".join(f"{{:<{w}}}" for w in larguras)
+    saida = [fmt.format(*cabecalho).rstrip(), "-+-".join("-" * w for w in larguras)]
+    saida += [fmt.format(*l).rstrip() for l in linhas]
+    saida.append(f"({len(linhas)} linha{'s' if len(linhas) != 1 else ''})")
+    return "\n".join(saida)
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +74,8 @@ def conectar_postgres(autocommit=False):
         password=env("POSTGRES_PASSWORD", "marketplace123"),
         dbname=env("POSTGRES_DB", "marketplace"),
         autocommit=autocommit,
+        # datas TIMESTAMPTZ voltam no horário de Brasília (o servidor usa UTC)
+        options="-c timezone=America/Sao_Paulo",
     )
 
 
@@ -155,6 +184,10 @@ class Saida:
                 texto = pprint.pformat(valor, width=100)
         for linha in texto.splitlines() or [""]:
             self.escrever(f"    {linha}")
+
+    def tabela(self, cabecalho, linhas, rotulo="Retorno"):
+        """Mostra o resultado de uma consulta como tabela alinhada."""
+        self.retorno(formatar_tabela(cabecalho, linhas), rotulo)
 
     def nota(self, texto):
         """Comentário explicativo (o "porquê") que também vai para o arquivo."""

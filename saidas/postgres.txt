@@ -1,0 +1,138 @@
+Demonstração: postgres  (gerado em 20/11/2026 22:09:18)
+  # PostgreSQL atende o R1: pedido + itens + pagamento + baixa de estoque
+  # numa única transação ACID ("ou tudo acontece ou nada acontece").
+
+==============================================================================
+Operação 1 [R1] Pedido válido do cliente 159 (João Felipe Cassiano): 1x produto 301 + 2x produto 1
+==============================================================================
+Comando:
+    BEGIN;
+      -- trava as linhas de estoque dos produtos do pedido (em ordem de id, para
+      -- dois pedidos concorrentes nunca travarem em ordens diferentes = deadlock)
+      SELECT produto_id, preco, estoque FROM produto_estoque
+       WHERE produto_id = ANY(:ids) ORDER BY produto_id FOR UPDATE;
+      INSERT INTO pedido (cliente_id, status, valor_total) VALUES (:cliente, 'pago', :total) RETURNING id;
+      -- para cada item: confere o saldo; se faltar -> erro -> ROLLBACK
+      INSERT INTO item_pedido (pedido_id, produto_id, quantidade, preco_unitario) VALUES (...);
+      UPDATE produto_estoque SET estoque = estoque - :qtd WHERE produto_id = :id;
+      INSERT INTO pagamento (pedido_id, metodo, valor, status, pago_em) VALUES (..., 'aprovado', now());
+    COMMIT;   -- ou ROLLBACK, se qualquer passo falhar
+Estoque ANTES:
+    produto_id | nome                        | estoque
+    -----------+-----------------------------+--------
+    1          | Celular Nexa X18 64GB       | 129
+    301        | Notebook Zenit Book 6 16.0" | 220
+    (2 linhas)
+Passos executados:
+    BEGIN
+    SELECT ... FOR UPDATE -> linhas travadas, estoque atual: produto 1=129, produto 301=220
+    INSERT pedido -> id 3001, valor_total 14412.50
+    INSERT item (produto 301 x1) + UPDATE estoque 220 -> 219
+    INSERT item (produto 1 x2) + UPDATE estoque 129 -> 127
+    INSERT pagamento (pix, aprovado)
+    COMMIT
+Estoque DEPOIS:
+    produto_id | nome                        | estoque
+    -----------+-----------------------------+--------
+    1          | Celular Nexa X18 64GB       | 127
+    301        | Notebook Zenit Book 6 16.0" | 219
+    (2 linhas)
+Pedido gravado:
+    pedido | produto_id | quantidade | preco_unitario | pagamento | status_pagto
+    -------+------------+------------+----------------+-----------+-------------
+    3001   | 1          | 2          | 1124.66        | pix       | aprovado
+    3001   | 301        | 1          | 12163.18       | pix       | aprovado
+    (2 linhas)
+
+==============================================================================
+Operação 2 [R1] Pedido com estoque insuficiente: 1x produto 301 (tem saldo) + 6x produto 21 (só há 5)
+==============================================================================
+Comando:
+    BEGIN;
+      -- trava as linhas de estoque dos produtos do pedido (em ordem de id, para
+      -- dois pedidos concorrentes nunca travarem em ordens diferentes = deadlock)
+      SELECT produto_id, preco, estoque FROM produto_estoque
+       WHERE produto_id = ANY(:ids) ORDER BY produto_id FOR UPDATE;
+      INSERT INTO pedido (cliente_id, status, valor_total) VALUES (:cliente, 'pago', :total) RETURNING id;
+      -- para cada item: confere o saldo; se faltar -> erro -> ROLLBACK
+      INSERT INTO item_pedido (pedido_id, produto_id, quantidade, preco_unitario) VALUES (...);
+      UPDATE produto_estoque SET estoque = estoque - :qtd WHERE produto_id = :id;
+      INSERT INTO pagamento (pedido_id, metodo, valor, status, pago_em) VALUES (..., 'aprovado', now());
+    COMMIT;   -- ou ROLLBACK, se qualquer passo falhar
+  # O item com saldo é processado PRIMEIRO: quando o erro acontece, o pedido
+  # já foi inserido e o estoque do notebook já foi baixado dentro da transação.
+  # O ROLLBACK precisa desfazer essas escritas.
+Estoque ANTES:
+    produto_id | nome                        | estoque
+    -----------+-----------------------------+--------
+    21         | Celular Lumio Neo6 512GB    | 5
+    301        | Notebook Zenit Book 6 16.0" | 219
+    (2 linhas)
+Pedidos ANTES:
+    pedidos | ultimo_id
+    --------+----------
+    3001    | 3001
+    (1 linha)
+Passos executados:
+    BEGIN
+    SELECT ... FOR UPDATE -> linhas travadas, estoque atual: produto 21=5, produto 301=219
+    INSERT pedido -> id 3002, valor_total 49420.96
+    INSERT item (produto 301 x1) + UPDATE estoque 219 -> 218
+    produto 21: pedido 6, disponível 5 -> ERRO (estoque insuficiente)
+    ROLLBACK  (motivo: produto 21: pedido 6, disponível 5)
+Estoque DEPOIS (igual ao ANTES):
+    produto_id | nome                        | estoque
+    -----------+-----------------------------+--------
+    21         | Celular Lumio Neo6 512GB    | 5
+    301        | Notebook Zenit Book 6 16.0" | 219
+    (2 linhas)
+Pedidos DEPOIS (igual ao ANTES):
+    pedidos | ultimo_id
+    --------+----------
+    3001    | 3001
+    (1 linha)
+  # Nada mudou: nem o pedido, nem o item, nem a baixa do notebook.
+  # Detalhe: o id que o pedido desfeito recebeu é "perdido" (o próximo pula
+  # um número), porque sequências não voltam atrás no ROLLBACK. Isso é
+  # proposital no PostgreSQL, para não serializar todas as transações.
+
+==============================================================================
+Operação 3 [R1] Últimos 5 pedidos do cliente 159 (João Felipe Cassiano, 25 pedidos no histórico) com itens e pagamento
+==============================================================================
+Comando:
+    SELECT p.id, p.criado_em, p.status, p.valor_total,
+           pg.metodo, pg.parcelas, pg.status AS pagamento,
+           string_agg(i.quantidade || 'x ' || pe.nome, '; ' ORDER BY pe.nome) AS itens
+      FROM pedido p
+      JOIN item_pedido     i  ON i.pedido_id   = p.id
+      JOIN produto_estoque pe ON pe.produto_id = i.produto_id
+      JOIN pagamento       pg ON pg.pedido_id  = p.id
+     WHERE p.cliente_id = 159
+     GROUP BY p.id, pg.id
+     ORDER BY p.criado_em DESC
+     LIMIT 5;
+Retorno:
+    pedido | criado_em        | status   | total    | metodo         | parc | pagto    | itens
+    -------+------------------+----------+----------+----------------+------+----------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    3001   | 20/11/2026 22:09 | pago     | 14412.50 | pix            | 1    | aprovado | 2x Celular Nexa X18 64GB; 1x Notebook Zenit Book 6 16.0"
+    2822   | 30/10/2026 18:21 | pago     | 29319.73 | pix            | 1    | aprovado | 1x Camiseta Maré Estampada branco M; 2x Notebook Zenit Book 6 16.0"; 1x Notebook Zenit Book 9 16.0"
+    1611   | 28/10/2026 04:58 | entregue | 2187.78  | boleto         | 1    | aprovado | 3x Tenis Corre Já Classic 5 casual n42
+    2831   | 19/10/2026 23:34 | entregue | 4954.74  | boleto         | 1    | aprovado | 1x Tenis Corre Já Classic 2 caminhada n38; 1x Tenis Corre Já Classic 5 casual n42; 1x Tenis Corre Já Street 6 corrida n45; 1x Tenis Corre Já Street 8 casual n45; 3x Tenis Urbe Classic 5 caminhada n37
+    2883   | 13/10/2026 23:24 | entregue | 15282.01 | cartao_credito | 1    | aprovado | 3x Notebook Zenit Gamer 9 15.6"; 1x Tenis Corre Já Run 8 caminhada n43; 1x Tenis Corre Já Street 8 casual n45
+    (5 linhas)
+  # O pedido 3001, criado na operação 1, aparece no topo.
+
+==============================================================================
+Operação 4 [R1] Garantia extra: tentar deixar o estoque negativo direto no banco
+==============================================================================
+Comando:
+    UPDATE produto_estoque SET estoque = estoque - 1000 WHERE produto_id = 21;
+Retorno:
+    ERRO 23514 (check_violation): new row for relation "produto_estoque" violates check constraint "produto_estoque_estoque_check"
+Estoque continua:
+    produto_id | nome                     | estoque
+    -----------+--------------------------+--------
+    21         | Celular Lumio Neo6 512GB | 5
+    (1 linha)
+  # Mesmo que um bug na aplicação esqueça de conferir o saldo, o CHECK
+  # (estoque >= 0) no schema impede a venda sem estoque.

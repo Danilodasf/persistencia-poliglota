@@ -1,0 +1,170 @@
+Demonstração: redis  (gerado em 20/11/2026 22:16:33)
+  # Redis atende R3, R4, R5 e R8: dados em memória, estruturas prontas
+  # (hash, sorted set) e TTL nativo.
+
+==============================================================================
+Operação 1 [R3] Sessão com expiração por inatividade (TTL de 30 min)
+==============================================================================
+Comando:
+    HSET sessao:demo0000000000000000000000000001 cliente_id 159 nome "..." dispositivo web login_em ... ultimo_acesso ...
+    EXPIRE sessao:demo0000000000000000000000000001 1800
+    TTL sessao:demo0000000000000000000000000001                      -- logo após o login
+    (3 s sem acesso) TTL sessao:demo0000000000000000000000000001
+    (usuário faz uma requisição) HSET sessao:demo0000000000000000000000000001 ultimo_acesso ...  +  EXPIRE sessao:demo0000000000000000000000000001 1800
+    TTL sessao:demo0000000000000000000000000001                      -- voltou para 1800
+HGETALL (sessão criada):
+    {
+      "cliente_id": "159",
+      "nome": "João Felipe Cassiano",
+      "dispositivo": "web",
+      "login_em": "2026-11-20T22:16:33",
+      "ultimo_acesso": "2026-11-20T22:16:33"
+    }
+TTL logo após o login (s):
+    1800
+TTL depois de 3 s sem acesso (s):
+    1797
+TTL depois do acesso (renovado, s):
+    1800
+  # Agora uma sessão de teste com TTL de 2 s, para ver a expiração acontecer:
+Logo após criar:
+    EXISTS sessao:demo-expira -> 1   TTL -> 2
+3 s depois:
+    EXISTS sessao:demo-expira -> 0   TTL -> -2  (-2 = chave não existe)
+Uma das 300 sessões da carga:
+    sessao:9a528dbd442c41d3459139092cc1fcca -> TTL 1792 s
+  # A chave sumiu sozinha: nenhum job de limpeza, nenhum DELETE.
+  # O próprio Redis remove as chaves expiradas.
+
+==============================================================================
+Operação 2 [R4] Carrinho do cliente 159: adicionar, alterar, remover, listar
+==============================================================================
+Comando:
+    DEL carrinho:159                        -- a demo começa com o carrinho vazio
+    HINCRBY carrinho:159 1 1                -- adiciona 1x produto 1
+    HINCRBY carrinho:159 301 1              -- adiciona 1x produto 301
+    HINCRBY carrinho:159 205 1              -- adiciona 1x produto 205
+    HINCRBY carrinho:159 1 2                -- muda a quantidade do produto 1 (1 -> 3)
+    HINCRBY carrinho:159 1 -1               -- diminui 1 (3 -> 2)
+    HDEL carrinho:159 301                   -- remove o produto 301
+    HGETALL carrinho:159
+    HLEN carrinho:159
+Retorno de cada comando (quantidade resultante):
+    HINCRBY 1 1     -> 1
+    HINCRBY 301 1   -> 1
+    HINCRBY 205 1   -> 1
+    HINCRBY 1 2     -> 3
+    HINCRBY 1 -1    -> 2
+    HDEL 301        -> 1 (item removido)
+HGETALL (produto_id -> quantidade):
+    {
+      "1": "2",
+      "205": "1"
+    }
+HLEN (itens distintos):
+    2
+Carrinho com os nomes (de produto_resumo:*):
+    produto_id | qtd | nome                            | preco
+    -----------+-----+---------------------------------+--------
+    1          | 2   | Celular Nexa X18 64GB           | 1124.66
+    205        | 1   | Camiseta Pulso Oversized azul G | 126.42
+    (2 linhas)
+  # Cada HINCRBY/HDEL é atômico e roda em memória: dois cliques simultâneos
+  # não perdem atualização. No checkout, este hash vira um pedido no
+  # PostgreSQL (R1), e lá entra a transação ACID.
+
+==============================================================================
+Operação 3 [R5] Ranking dos mais vistos: top 10, novas visualizações, top 10 de novo
+==============================================================================
+Comando:
+    ZREVRANGE ranking:visualizacoes 0 9 WITHSCORES             -- top 10
+    ZREVRANK ranking:visualizacoes 301  /  ZSCORE ranking:visualizacoes 301
+    ZINCRBY ranking:visualizacoes 1 301                     -- uma vez por visualização (51x)
+    ZREVRANK ranking:visualizacoes 301  /  ZSCORE ranking:visualizacoes 301
+    ZREVRANGE ranking:visualizacoes 0 9 WITHSCORES
+Top 10 ANTES:
+    pos | produto_id | visualizacoes | nome
+    ----+------------+---------------+------------------------------------
+    1   | 254        | 3974          | Camiseta Raiz Estampada verde GG
+    2   | 383        | 2688          | Notebook Nexa Gamer 7 13.3"
+    3   | 237        | 1692          | Camiseta Pulso Oversized azul M
+    4   | 15         | 1361          | Celular Orbita Neo12 512GB
+    5   | 281        | 1283          | Camiseta Maré Esportiva rosa G
+    6   | 435        | 1116          | Tenis Pulso Classic 5 corrida n39
+    7   | 442        | 950           | Tenis Corre Já Classic 5 casual n42
+    8   | 101        | 950           | O Silêncio de Outono
+    9   | 457        | 813           | Tenis Trilha Flow 5 skate n44
+    10  | 131        | 778           | Fundamentos de Finanças Pessoais
+    (10 linhas)
+Produto alvo ANTES:
+    produto 301: posição 11, 732 visualizações
+Produto alvo DEPOIS de 51 ZINCRBY:
+    produto 301: posição 10, 783 visualizações
+Top 10 DEPOIS:
+    pos | produto_id | visualizacoes | nome
+    ----+------------+---------------+------------------------------------
+    1   | 254        | 3974          | Camiseta Raiz Estampada verde GG
+    2   | 383        | 2688          | Notebook Nexa Gamer 7 13.3"
+    3   | 237        | 1692          | Camiseta Pulso Oversized azul M
+    4   | 15         | 1361          | Celular Orbita Neo12 512GB
+    5   | 281        | 1283          | Camiseta Maré Esportiva rosa G
+    6   | 435        | 1116          | Tenis Pulso Classic 5 corrida n39
+    7   | 442        | 950           | Tenis Corre Já Classic 5 casual n42
+    8   | 101        | 950           | O Silêncio de Outono
+    9   | 457        | 813           | Tenis Trilha Flow 5 skate n44
+    10  | 301        | 783           | Notebook Zenit Book 6 16.0"
+    (10 linhas)
+  # ZINCRBY conta e reposiciona ao mesmo tempo (O(log n)); o ZREVRANGE
+  # devolve o top 10 já ordenado, sem ORDER BY na hora da consulta.
+
+==============================================================================
+Operação 4 [R8] Produtos da marca "nexa" para a tela de navegação (1ª página)
+==============================================================================
+Comando:
+    HGETALL marcas                -- menu de marcas
+    ZCARD marca:nexa            -- total de produtos da marca
+    ZRANGE marca:nexa 0 9       -- 1ª página, já em ordem de nome
+    HGETALL produto_resumo:<id>   -- para cada id, num único pipeline
+Marcas:
+    slug                  | marca                 | produtos
+    ----------------------+-----------------------+---------
+    atlas                 | Atlas                 | 8
+    brisa                 | Brisa                 | 35
+    cacto                 | Cacto                 | 9
+    corre-ja              | Corre Já              | 16
+    editora-aurora        | Editora Aurora        | 26
+    editora-ipe           | Editora Ipê           | 32
+    editora-pindorama     | Editora Pindorama     | 22
+    editora-sextante-azul | Editora Sextante Azul | 20
+    kairo                 | Kairo                 | 20
+    lumio                 | Lumio                 | 39
+    mare                  | Maré                  | 8
+    nexa                  | Nexa                  | 43
+    orbita                | Orbita                | 35
+    passo-firme           | Passo Firme           | 9
+    pulso                 | Pulso                 | 35
+    raiz                  | Raiz                  | 26
+    trilha                | Trilha                | 24
+    urbe                  | Urbe                  | 30
+    vortex                | Vortex                | 31
+    zenit                 | Zenit                 | 32
+    (20 linhas)
+ZCARD / ZRANGE:
+    43 produtos; 1ª página: ['47', '25', '64', '35', '16', '33', '49', '78', '29', '60']
+Página 1 (ordenada por nome):
+    produto_id | nome                      | categoria | preco
+    -----------+---------------------------+-----------+--------
+    47         | Celular Nexa Lite11 512GB | celular   | 4127.37
+    25         | Celular Nexa Lite14 128GB | celular   | 2019.00
+    64         | Celular Nexa Lite14 512GB | celular   | 5890.21
+    35         | Celular Nexa Lite18 512GB | celular   | 1395.81
+    16         | Celular Nexa Lite20 128GB | celular   | 2420.08
+    33         | Celular Nexa Lite5 256GB  | celular   | 1717.93
+    49         | Celular Nexa Max8 128GB   | celular   | 4903.18
+    78         | Celular Nexa Max9 512GB   | celular   | 1430.28
+    29         | Celular Nexa Max9 64GB    | celular   | 1195.98
+    60         | Celular Nexa Neo14 256GB  | celular   | 4231.72
+    (10 linhas)
+  # Tudo sai da memória do Redis: o MongoDB (catálogo) e o PostgreSQL não
+  # são consultados. A projeção é remontada na carga, quando o catálogo muda.
+  # Página seguinte: ZRANGE marca:nexa 10 19.

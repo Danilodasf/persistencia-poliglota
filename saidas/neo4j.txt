@@ -1,0 +1,115 @@
+Demonstração: neo4j  (gerado em 20/11/2026 22:22:28)
+  # Neo4j atende o R7: recomendação é travessia de relacionamentos
+  # (:Cliente)-[:COMPROU]->(:Produto). A consulta descreve o caminho
+  # em vez de encadear self-joins.
+
+==============================================================================
+Operação 1 [R7] "Quem comprou este produto também comprou": produto 254 (Camiseta Raiz Estampada verde GG, 164 compradores)
+==============================================================================
+Comando:
+    MATCH (p:Produto {id: 254})<-[:COMPROU]-(c:Cliente)-[:COMPROU]->(outro:Produto)
+    WHERE outro <> p
+    RETURN outro.id AS id, outro.nome AS nome, outro.categoria AS categoria, outro.marca AS marca,
+           count(DISTINCT c) AS clientes_em_comum
+    ORDER BY clientes_em_comum DESC, id
+    LIMIT 5
+Retorno:
+    id  | nome                            | categoria | marca | clientes_em_comum
+    ----+---------------------------------+-----------+-------+------------------
+    237 | Camiseta Pulso Oversized azul M | camiseta  | Pulso | 43
+    281 | Camiseta Maré Esportiva rosa G  | camiseta  | Maré  | 39
+    383 | Notebook Nexa Gamer 7 13.3"     | notebook  | Nexa  | 34
+    228 | Camiseta Raiz Estampada azul P  | camiseta  | Raiz  | 28
+    282 | Camiseta Brisa Basica amarelo P | camiseta  | Brisa | 22
+    (5 linhas)
+  # Leitura do caminho: parte do produto, volta pelas setas COMPROU até
+  # quem o comprou e segue para os outros produtos dessas pessoas,
+  # contando quantos clientes cada par tem em comum.
+  # Em SQL seria: item_pedido JOIN pedido JOIN pedido JOIN item_pedido
+  # (self-join) + GROUP BY. Cada salto a mais seria mais um par de joins.
+  # Limitação conhecida: a contagem simples favorece produtos populares
+  # (aparecem com quase tudo). Um sistema real normalizaria, por exemplo
+  # com similaridade de Jaccard, sem mudar o padrão de caminho.
+
+==============================================================================
+Operação 2 [R7] "Clientes com histórico parecido compraram isto": recomendações para o cliente 159
+==============================================================================
+Comando:
+    // 1) os 10 clientes mais parecidos: os que têm mais produtos em comum comigo
+    MATCH (eu:Cliente {id: 159})-[:COMPROU]->(p:Produto)<-[:COMPROU]-(outro:Cliente)
+    WHERE outro <> eu
+    WITH eu, outro, count(DISTINCT p) AS em_comum
+    ORDER BY em_comum DESC, outro.id
+    LIMIT 10
+    // 2) o que eles compraram e eu ainda não comprei
+    MATCH (outro)-[:COMPROU]->(rec:Produto)
+    WHERE NOT (eu)-[:COMPROU]->(rec)
+    // 3) pontuação: soma da semelhança de quem recomenda
+    RETURN rec.id AS id, rec.nome AS nome, rec.categoria AS categoria, rec.marca AS marca,
+           count(DISTINCT outro) AS recomendado_por, sum(em_comum) AS pontuacao
+    ORDER BY pontuacao DESC, recomendado_por DESC, id
+    LIMIT 5
+Histórico do cliente 159 (o que ele já comprou, por marca):
+    marca                 | produtos | categorias
+    ----------------------+----------+------------------
+    Corre Já              | 7        | tenis
+    Trilha                | 7        | tenis, camiseta
+    Zenit                 | 5        | notebook
+    Nexa                  | 4        | notebook, celular
+    Urbe                  | 4        | tenis, camiseta
+    Editora Pindorama     | 3        | livro
+    Lumio                 | 3        | notebook, celular
+    Raiz                  | 3        | tenis, camiseta
+    Kairo                 | 2        | celular
+    Orbita                | 2        | notebook, celular
+    Pulso                 | 2        | camiseta, tenis
+    Editora Sextante Azul | 1        | livro
+    Maré                  | 1        | camiseta
+    (13 linhas)
+Os 10 clientes mais parecidos (passo 1 da consulta):
+    id  | nome                      | produtos_em_comum
+    ----+---------------------------+------------------
+    671 | Sarah Silveira            | 11
+    701 | Anthony Gabriel Nunes     | 10
+    596 | Ana Beatriz Carvalho      | 9
+    916 | Maria Vitória Vasconcelos | 9
+    63  | Ayla Ribeiro              | 8
+    265 | Hellena Abreu             | 8
+    288 | Milena Farias             | 8
+    730 | Thiago Campos             | 8
+    757 | Isadora Camargo           | 8
+    775 | Catarina Câmara           | 8
+    (10 linhas)
+Recomendações (produtos que ele ainda não comprou):
+    id  | nome                           | categoria | marca             | recomendado_por | pontuacao
+    ----+--------------------------------+-----------+-------------------+-----------------+----------
+    281 | Camiseta Maré Esportiva rosa G | camiseta  | Maré              | 5               | 46
+    101 | O Silêncio de Outono           | livro     | Editora Pindorama | 4               | 38
+    474 | Tenis Pulso Air 2 treino n42   | tenis     | Pulso             | 3               | 28
+    66  | Celular Orbita Neo20 64GB      | celular   | Orbita            | 3               | 27
+    306 | Notebook Zenit Gamer 8 16.0"   | notebook  | Zenit             | 3               | 27
+    (5 linhas)
+  # pontuacao = soma dos produtos em comum de cada cliente parecido que
+  # comprou o item: quanto mais parecido quem recomenda, mais peso.
+  # O filtro WHERE NOT (eu)-[:COMPROU]->(rec) também é um padrão de
+  # caminho: "não existe a seta de mim até este produto".
+
+==============================================================================
+Operação 3 [R7] Por que o produto 281 foi recomendado: um caminho concreto no grafo
+==============================================================================
+Comando:
+    MATCH caminho = (eu:Cliente {id: 159})-[:COMPROU]->(p:Produto)
+                    <-[:COMPROU]-(outro:Cliente)-[:COMPROU]->(rec:Produto {id: 281})
+    WHERE outro.id IN [671, 701, 596, 916, 63, 265, 288, 730, 757, 775]
+    RETURN eu.nome AS eu, p.nome AS produto_comum, outro.id AS outro_id, outro.nome AS outro,
+           rec.nome AS recomendado, length(caminho) AS saltos
+    ORDER BY outro.id, p.id
+    LIMIT 1
+Retorno:
+    (João Felipe Cassiano)
+       -[:COMPROU]-> (Camiseta Raiz Estampada azul P)
+       <-[:COMPROU]- (cliente 265: Hellena Abreu)
+       -[:COMPROU]-> (Camiseta Maré Esportiva rosa G)
+    3 saltos
+  # A recomendação é explicável: dá para mostrar ao usuário "porque
+  # clientes que compraram o mesmo que você também levaram isto".

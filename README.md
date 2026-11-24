@@ -1,9 +1,25 @@
 # Persistência Poliglota: Marketplace
 
-Trabalho Final N3 da disciplina de Banco de Dados.
+Trabalho Final N3 (Persistência Poliglota) · Engenharia de Software · Universidade de Rio Verde · 2026.
 **Grupo:** Matheus Henrique de Araujo Carneiro, Danilo da Silva Faria e Leonardo Pacheco de Oliveira Vaz.
 
 Um marketplace em que cada requisito é atendido pelo banco cujo modelo de dados resolve aquele problema de forma nativa. São cinco bancos ao mesmo tempo: **PostgreSQL, MongoDB, Redis, Cassandra e Neo4j**. Não há interface nem API. O repositório traz um ambiente Docker que sobe os cinco bancos e scripts Python que **simulam o que a aplicação faria** contra cada um: carga de dados e demonstrações que mostram o comando executado e o retorno obtido.
+
+---
+
+## O marketplace
+
+O sistema é a camada de dados de um marketplace que vende produtos de categorias muito diferentes entre si: celulares, livros, camisetas, notebooks e tênis. Além do catálogo, ele precisa registrar pedidos com baixa de estoque, manter a sessão e o carrinho do usuário, medir a navegação e recomendar produtos.
+
+Cada uma dessas necessidades tem um padrão de acesso próprio:
+- transação entre várias tabelas;
+- documento de formato variável;
+- dado temporário que expira sozinho;
+- contador sempre ordenado;
+- escrita em grande volume;
+- travessia de relacionamentos.
+
+Por isso, em vez de forçar um único banco a fazer tudo, cada requisito fica no banco que já resolve aquele padrão.
 
 ---
 
@@ -20,7 +36,29 @@ Um marketplace em que cada requisito é atendido pelo banco cujo modelo de dados
 | R7 | "Quem comprou também comprou" / clientes parecidos | **Neo4j** | `(:Cliente)-[:COMPROU]->(:Produto)` |
 | R8 | Produtos de uma marca, navegação rápida, sem o banco principal | **Redis** | `marca:{slug}` (sorted set) + `produto_resumo:{id}` (hash) |
 
-Todos os bancos usam **os mesmos IDs** (`cliente_id`, `produto_id`), gerados num único dataset com seed fixa. O PostgreSQL é a fonte da verdade transacional; os outros bancos guardam projeções especializadas.
+### Por que cada banco
+
+| Banco | Característica decisiva |
+|---|---|
+| **PostgreSQL** (R1) | Transação ACID entre várias tabelas: pedido, itens, pagamento e baixa de estoque são confirmados juntos (`COMMIT`) ou desfeitos juntos (`ROLLBACK`). O `SELECT ... FOR UPDATE` impede que dois pedidos simultâneos vendam a mesma última unidade, e o `CHECK (estoque >= 0)` é garantido pelo próprio banco. |
+| **MongoDB** (R2) | Esquema flexível por documento: os campos comuns ficam no topo e o subdocumento `atributos` tem o formato de cada categoria. Uma categoria nova entra sem alterar o esquema, e os atributos continuam consultáveis e indexáveis. |
+| **Redis** (R3, R4, R5, R8) | Dados em memória com estruturas prontas. O TTL nativo faz a sessão expirar sozinha, sem rotina de limpeza. O hash com `HINCRBY`/`HDEL` altera o carrinho de forma atômica. O sorted set mantém o ranking e a listagem por marca sempre ordenados. |
+| **Cassandra** (R6) | Escrita distribuída, sem nó primário e sem leitura antes de gravar. A tabela é modelada a partir da consulta: a partição `(cliente_id, mes)` junta os eventos do usuário no mês, já ordenados do mais recente ao mais antigo. |
+| **Neo4j** (R7) | As recomendações são caminhos no grafo `(:Cliente)-[:COMPROU]->(:Produto)`. O custo depende só da vizinhança visitada, e o Cypher descreve a pergunta como um padrão de caminho, em vez de autojunções encadeadas no SQL. |
+
+### Como os bancos se conectam
+
+Dois bancos são **fontes da verdade**: o PostgreSQL para pedidos, pagamentos e estoque, e o MongoDB para o catálogo. Os outros três guardam dados especializados ou derivados. Numa aplicação real, o dado circularia assim:
+
+1. No fechamento da compra, o carrinho do **Redis** vira um pedido no **PostgreSQL**, dentro de uma transação.
+2. Cada pedido pago cria ou atualiza a relação `COMPROU` no **Neo4j**.
+3. Cada visualização registrada no **Cassandra** soma um ponto no ranking do **Redis**.
+4. Mudanças no catálogo do **MongoDB** atualizam a listagem por marca no **Redis**.
+5. Mudanças no catálogo do **MongoDB** também atualizam o nome e o preço guardados no **PostgreSQL**.
+
+Neste trabalho, essa sincronização é simulada pela carga: os cinco bancos são alimentados a partir de **um único dataset com seed fixa**. Por isso todos usam **os mesmos IDs** (`cliente_id`, `produto_id`), e um produto do ranking do Redis é o mesmo do MongoDB, do PostgreSQL e do Neo4j.
+
+Só o pedido e o estoque exigem consistência imediata. Nos dados derivados (ranking, recomendação e listagem por marca), alguns segundos de atraso em relação à fonte não prejudicam o usuário.
 
 ---
 

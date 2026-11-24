@@ -1,4 +1,4 @@
-Demonstração: cassandra  (gerado em 20/11/2026 23:30:14)
+Demonstração: cassandra  (gerado em 23/11/2026 17:30:31)
   # Cassandra atende o R6: escrita massiva e distribuída. A tabela foi
   # modelada a partir da consulta "histórico do usuário":
   # PRIMARY KEY ((cliente_id, mes), ocorrido_em DESC, evento_id).
@@ -18,9 +18,9 @@ Comando:
 Retorno:
     ocorrido_em         | tipo         | produto_id | termo          | dispositivo
     --------------------+--------------+------------+----------------+------------
-    20/11/2026 23:30:14 | clique       | 383        |                | web
-    20/11/2026 23:29:14 | visualizacao | 383        |                | web
-    20/11/2026 23:28:14 | busca        |            | notebook gamer | web
+    23/11/2026 17:30:31 | clique       | 383        |                | web
+    23/11/2026 17:29:31 | visualizacao | 383        |                | web
+    23/11/2026 17:28:31 | busca        |            | notebook gamer | web
     (3 linhas)
   # Foram inseridos em ordem cronológica e voltaram do mais recente para o mais
   # antigo: a ordem vem do CLUSTERING ORDER BY (ocorrido_em DESC), não da consulta.
@@ -52,13 +52,13 @@ Eventos por mês:
     2026-08 | 218
     (4 linhas)
 Resumo:
-    602 eventos em 4 leituras de partição + 1, 14 ms; ordem decrescente conferida: True
+    602 eventos em 4 leituras de partição + 1, 12 ms; ordem decrescente conferida: True
 8 mais recentes:
     ocorrido_em         | tipo         | produto_id | termo                 | dispositivo
     --------------------+--------------+------------+-----------------------+------------
-    20/11/2026 23:30:14 | clique       | 383        |                       | web
-    20/11/2026 23:29:14 | visualizacao | 383        |                       | web
-    20/11/2026 23:28:14 | busca        |            | notebook gamer        | web
+    23/11/2026 17:30:31 | clique       | 383        |                       | web
+    23/11/2026 17:29:31 | visualizacao | 383        |                       | web
+    23/11/2026 17:28:31 | busca        |            | notebook gamer        | web
     31/10/2026 23:07:23 | clique       | 438        |                       | ios
     31/10/2026 18:55:47 | busca        |            | notebook gamer vortex | web
     31/10/2026 18:24:10 | visualizacao | 257        |                       | android
@@ -105,7 +105,7 @@ Sem ALLOW FILTERING:
 Comparação:
     consulta                                       | linhas       | tempo
     -----------------------------------------------+--------------+-------
-    com ALLOW FILTERING (varre todas as partições) | 14741 buscas | 330 ms
+    com ALLOW FILTERING (varre todas as partições) | 14741 buscas | 214 ms
     pela partition key (159, '2026-08')            | 218 eventos  | 3 ms
     (2 linhas)
   # Sem a chave de partição o Cassandra não sabe em qual nó estão os dados:

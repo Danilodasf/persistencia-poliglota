@@ -1,4 +1,4 @@
-Demonstração: mongodb  (gerado em 20/11/2026 23:30:04)
+Demonstração: mongodb  (gerado em 22/11/2026 16:49:18)
   # MongoDB atende o R2: cada produto é um documento; os campos comuns ficam
   # no topo e o subdocumento "atributos" muda conforme a categoria.
 
